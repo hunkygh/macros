@@ -1,5 +1,5 @@
-var CACHE = 'macros-v1';
-var ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json'];
+var CACHE = 'macros-v2';
+var ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json', '/icon.svg'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
