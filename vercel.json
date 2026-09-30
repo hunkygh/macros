@@ -1,6 +1,8 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/apple-touch-icon.png", "destination": "/api/icon" },
+    { "source": "/icon-512.png", "destination": "/api/icon" },
+    { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {

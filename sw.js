@@ -1,5 +1,5 @@
-var CACHE = 'macros-v2';
-var ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json', '/icon.svg'];
+var CACHE = 'macros-v3';
+var ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json', '/apple-touch-icon.png', '/icon-512.png'];
 
 self.addEventListener('install', function (e) {
   e.waitUntil(
