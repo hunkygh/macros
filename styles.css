@@ -32,7 +32,6 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* App Shell */
 .app-shell {
   height: 100%;
   display: flex;
@@ -41,7 +40,6 @@ html, body {
   margin: 0 auto;
 }
 
-/* Panels */
 .panels {
   flex: 1;
   display: flex;
@@ -64,7 +62,6 @@ html, body {
 }
 .panel::-webkit-scrollbar { display: none; }
 
-/* Nav Dots */
 .nav-dots {
   display: flex;
   justify-content: center;
@@ -87,7 +84,6 @@ html, body {
   transform: scale(1.35);
 }
 
-/* Cards */
 .card {
   background: var(--card);
   border: 1px solid var(--border);
@@ -95,7 +91,6 @@ html, body {
   box-shadow: var(--shadow);
 }
 
-/* ---- HOME PANEL ---- */
 .date-header {
   font-size: 22px;
   font-weight: 700;
@@ -207,7 +202,6 @@ html, body {
   color: var(--red);
 }
 
-/* ---- MEALS PANEL ---- */
 .meals-header {
   display: flex;
   gap: 10px;
@@ -298,7 +292,6 @@ html, body {
   transform: scale(0.95);
 }
 
-/* ---- TRENDS PANEL ---- */
 .goal-card {
   cursor: pointer;
   transition: all 0.15s;
@@ -419,7 +412,6 @@ html, body {
   opacity: 0.15;
 }
 
-/* ---- MODAL ---- */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -496,7 +488,6 @@ html, body {
   font-size: 15px;
 }
 
-/* Remove number spinners */
 input[type="number"]::-webkit-inner-spin-button,
 input[type="number"]::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -565,7 +556,6 @@ input[type="number"] {
   opacity: 0.85;
 }
 
-/* ---- TOAST ---- */
 .toast {
   position: fixed;
   bottom: 80px;
@@ -588,9 +578,22 @@ input[type="number"] {
   transform: translateX(-50%) translateY(0);
 }
 
-/* ---- PWA safe areas ---- */
 @supports (padding: env(safe-area-inset-top)) {
   .panel:first-child, .panel:nth-child(2), .panel:nth-child(3) {
     padding-top: max(24px, env(safe-area-inset-top));
   }
 }
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  margin-top: -4px;
+}
+.suggestions:empty { display: none; }
+.suggestion {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--divider);
+  cursor: pointer;
+}
+.suggestion:last-child { border-bottom: none; }
+.suggestion:active { background: #fafafa; }
