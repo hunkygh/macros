@@ -14,7 +14,12 @@
   function load() {
     try {
       var s = localStorage.getItem(STORAGE_KEY);
-      if (s) state = JSON.parse(s);
+      if (s) {
+        var p = JSON.parse(s);
+        state.meals = p.meals || [];
+        state.logs = p.logs || [];
+        state.goals = p.goals || state.goals;
+      }
     } catch (e) { /* noop */ }
   }
 
@@ -101,6 +106,7 @@
         state.logs = state.logs.filter(function (l) { return l.id !== btn.dataset.log; });
         save();
         renderHome();
+        renderTrends();
       });
     });
   }
@@ -150,6 +156,7 @@
         state.logs.push({ id: uid(), date: today(), name: meal.name, desc: meal.desc || '', protein: meal.protein, calories: meal.calories, fats: meal.fats, carbs: meal.carbs });
         save();
         renderHome();
+        renderTrends();
         toast('Logged');
       });
     });
@@ -191,7 +198,6 @@
         var valEl = card.querySelector('.goal-value');
         if (!valEl) return;
         var current = state.goals[macro];
-        var unit = macro === 'calories' ? '' : 'g';
 
         var inp = document.createElement('input');
         inp.type = 'number';
@@ -275,7 +281,7 @@
 
     var goalY = PAD_T + PLOT_H * (1 - goal / maxVal);
 
-    var html = '<div class="goal-line" style="top:' + goalY + 'px;left:0;right:0;background:' + getComputedStyle(document.documentElement).getPropertyValue('--title').trim() + ';opacity:0.18;position:absolute;height:1.5px"></div>';
+    var html = '<div class="goal-line" style="top:' + goalY + 'px;left:0;right:0;background:#1a1a1a;opacity:0.18;position:absolute;height:1.5px"></div>';
 
     data.forEach(function (d, i) {
       var x = 20 + i * DAY_W;
@@ -311,6 +317,7 @@
 
     var html = '<div class="modal-handle"></div><div class="modal-fields">';
     html += '<input type="text" id="m-name" class="modal-input" placeholder="Name" autocomplete="off">';
+    if (mode === 'log') html += '<div class="suggestions" id="m-suggest"></div>';
     html += '<input type="text" id="m-desc" class="modal-input" placeholder="Description" autocomplete="off">';
     html += '<div class="modal-macro-grid">';
     html += macroInput('m-protein', 'Protein');
@@ -326,7 +333,6 @@
 
     modal.innerHTML = html;
     overlay.classList.add('active');
-    // Small delay for transition
     requestAnimationFrame(function () {
       requestAnimationFrame(function () {
         modal.classList.add('active');
@@ -335,9 +341,48 @@
     setTimeout(function () { var el = document.getElementById('m-name'); if (el) el.focus(); }, 350);
 
     document.getElementById('m-submit').addEventListener('click', submitModal);
+    if (mode === 'log') initSuggest();
     overlay.addEventListener('click', function handler(e) {
       if (e.target === overlay) { closeModal(); overlay.removeEventListener('click', handler); }
     });
+  }
+
+  function initSuggest() {
+    var nameEl = document.getElementById('m-name');
+    var box = document.getElementById('m-suggest');
+    nameEl.addEventListener('input', function () {
+      var q = nameEl.value.trim().toLowerCase();
+      if (!q) { box.innerHTML = ''; return; }
+      var hits = state.meals.filter(function (m) { return m.name.toLowerCase().indexOf(q) !== -1; }).slice(0, 5);
+      var html = '';
+      hits.forEach(function (m) {
+        html += '<div class="suggestion" data-mid="' + m.id + '"><div class="meal-name">' + esc(m.name) + '</div>';
+        html += '<div class="meal-macros">' + m.protein + 'p &middot; ' + m.calories + 'cal &middot; ' + m.fats + 'f &middot; ' + m.carbs + 'c</div></div>';
+      });
+      box.innerHTML = html;
+      box.querySelectorAll('.suggestion').forEach(function (el) {
+        el.addEventListener('click', function () {
+          var m = state.meals.find(function (x) { return x.id === el.dataset.mid; });
+          if (!m) return;
+          nameEl.value = m.name;
+          document.getElementById('m-desc').value = m.desc || '';
+          document.getElementById('m-protein').value = m.protein;
+          document.getElementById('m-calories').value = m.calories;
+          document.getElementById('m-fats').value = m.fats;
+          document.getElementById('m-carbs').value = m.carbs;
+          box.innerHTML = '';
+        });
+      });
+    });
+  }
+
+  function upsertMeal(data) {
+    var existing = state.meals.find(function (m) { return m.name.toLowerCase() === data.name.toLowerCase(); });
+    if (existing) {
+      existing.desc = data.desc; existing.protein = data.protein; existing.calories = data.calories; existing.fats = data.fats; existing.carbs = data.carbs;
+    } else {
+      state.meals.push({ id: uid(), name: data.name, desc: data.desc, protein: data.protein, calories: data.calories, fats: data.fats, carbs: data.carbs });
+    }
   }
 
   function macroInput(id, label) {
@@ -367,7 +412,7 @@
       state.logs.push({ id: uid(), date: today(), name: data.name, desc: data.desc, protein: data.protein, calories: data.calories, fats: data.fats, carbs: data.carbs });
       var cb = document.getElementById('m-save');
       if (cb && cb.checked) {
-        state.meals.push({ id: uid(), name: data.name, desc: data.desc, protein: data.protein, calories: data.calories, fats: data.fats, carbs: data.carbs });
+        upsertMeal(data);
         renderMeals();
       }
       save();
@@ -375,7 +420,7 @@
       renderTrends();
       toast('Logged');
     } else {
-      state.meals.push({ id: uid(), name: data.name, desc: data.desc, protein: data.protein, calories: data.calories, fats: data.fats, carbs: data.carbs });
+      upsertMeal(data);
       save();
       renderMeals();
       toast('Saved');
@@ -398,7 +443,6 @@
     var panels = document.getElementById('panels');
     var dots = document.querySelectorAll('.dot');
 
-    // Scroll to home (center panel)
     requestAnimationFrame(function () {
       panels.scrollTo({ left: panels.clientWidth, behavior: 'instant' });
     });
@@ -429,6 +473,8 @@
     renderHome();
     renderTrends();
     initNav();
+
+    if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(function () {});
