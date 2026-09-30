@@ -1,4 +1,4 @@
-var CACHE = 'macros-v4';
+var CACHE = 'macros-v5';
 var ASSETS = ['/', '/index.html', '/styles.css', '/app.js', '/manifest.json', '/apple-touch-icon.png', '/icon-512.png'];
 
 self.addEventListener('install', function (e) {
@@ -14,7 +14,7 @@ self.addEventListener('activate', function (e) {
 });
 
 self.addEventListener('fetch', function (e) {
-  if (e.request.method !== 'GET') return;
+  if (e.request.method !== 'GET' || e.request.url.indexOf('supabase.co') !== -1) return;
   e.respondWith(
     fetch(e.request).then(function (r) {
       var copy = r.clone();

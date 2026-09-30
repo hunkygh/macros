@@ -11,6 +11,12 @@
   var STORAGE_KEY = 'macros_state';
   var modalMode = 'log';
 
+  var SB_URL = 'https://dedsggjxrutvklqagkcp.supabase.co';
+  var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRlZHNnZ2p4cnV0dmtscWFna2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NjIxMDUsImV4cCI6MjEwNjMzODEwNX0.91KQOhRnSuxNw3tiTGNpyxGwi4f-QviCxWWs9jQKt94';
+  var KEY_STORE = 'macros_sync_key';
+  var updatedAt = 0;
+  var pushTimer;
+
   function load() {
     try {
       var s = localStorage.getItem(STORAGE_KEY);
@@ -19,12 +25,65 @@
         state.meals = p.meals || [];
         state.logs = p.logs || [];
         state.goals = p.goals || state.goals;
+        updatedAt = p.updated_at || 0;
       }
     } catch (e) { /* noop */ }
   }
 
+  function writeLocal() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meals: state.meals, logs: state.logs, goals: state.goals, updated_at: updatedAt }));
+    } catch (e) { /* noop */ }
+  }
+
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch (e) { /* noop */ }
+    updatedAt = Date.now();
+    writeLocal();
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(push, 600);
+  }
+
+  // ===== Sync =====
+  function syncKey() {
+    var k = localStorage.getItem(KEY_STORE);
+    if (!k) {
+      k = (window.prompt('') || '').trim();
+      if (k.length >= 6) localStorage.setItem(KEY_STORE, k); else k = null;
+    }
+    return k;
+  }
+
+  function rpc(fn, body) {
+    return fetch(SB_URL + '/rest/v1/rpc/' + fn, {
+      method: 'POST',
+      headers: { 'apikey': SB_KEY, 'Authorization': 'Bearer ' + SB_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    }).then(function (r) { if (!r.ok) throw new Error(r.status); return r.status === 204 ? null : r.json(); });
+  }
+
+  function push() {
+    var k = localStorage.getItem(KEY_STORE);
+    if (!k) return;
+    rpc('put_state', { p_key: k, p_data: { meals: state.meals, logs: state.logs, goals: state.goals }, p_updated: updatedAt }).catch(function () {});
+  }
+
+  function pull() {
+    var k = syncKey();
+    if (!k) return;
+    rpc('get_state', { p_key: k }).then(function (remote) {
+      if (remote && remote.updated_at > updatedAt) {
+        state.meals = remote.data.meals || [];
+        state.logs = remote.data.logs || [];
+        state.goals = remote.data.goals || state.goals;
+        updatedAt = remote.updated_at;
+        writeLocal();
+        renderMeals();
+        renderHome();
+        renderTrends();
+      } else if (!remote || remote.updated_at < updatedAt) {
+        push();
+      }
+    }).catch(function () {});
   }
 
   function uid() {
@@ -115,7 +174,6 @@
     return '<div class="card macro-card"><div class="macro-value">' + val + unit + '</div><div class="macro-label">' + label + '</div></div>';
   }
 
-  // Meals panel: structure once, update list on search
   var mealsInitialized = false;
 
   function renderMeals() {
@@ -191,7 +249,6 @@
 
     panel.innerHTML = html;
 
-    // Goal card editing
     panel.querySelectorAll('.goal-card').forEach(function (card) {
       card.addEventListener('click', function () {
         var macro = card.dataset.macro;
@@ -294,7 +351,6 @@
 
     area.innerHTML = html;
 
-    // Y-axis labels
     var ticks = [0, Math.round(maxVal / 2), Math.round(maxVal)];
     var yhtml = '';
     ticks.forEach(function (v) {
@@ -304,7 +360,6 @@
     yhtml += '<span class="y-label" style="top:' + goalY + 'px;font-weight:600;color:var(--title)">' + goal + '</span>';
     yaxis.innerHTML = yhtml;
 
-    // Scroll to right (most recent)
     scrollEl.scrollLeft = scrollEl.scrollWidth;
   }
 
@@ -475,6 +530,9 @@
     initNav();
 
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
+
+    setTimeout(pull, 400);
+    document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') pull(); });
 
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(function () {});
