@@ -11,8 +11,8 @@
   var modalMode = 'log';
   var editing = null;
 
-  var SB_URL = 'https://dedsggjxrutvklqagkcp.supabase.co';
-  var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRlZHNnZ2p4cnV0dmtscWFna2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA3NjIxMDUsImV4cCI6MjEwNjMzODEwNX0.91KQOhRnSuxNw3tiTGNpyxGwi4f-QviCxWWs9jQKt94';
+  var SB_URL = 'https://eobhzoavxexmcoabwikq.supabase.co';
+  var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvYmh6b2F2eGV4bWNvYWJ3aWtxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5OTA5MjEsImV4cCI6MjEwNjU2NjkyMX0.Yam7tsY_7kPK3Ayl2hPa9rYoGZy11evKflYVz2BLIBk';
   var KEY_STORE = 'macros_sync_key';
   var updatedAt = 0;
   var pushTimer;
