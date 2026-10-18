@@ -4,12 +4,27 @@
   var state = {
     meals: [],
     logs: [],
+    plans: [],
+    sprints: [],
     goals: { protein: 165, calories: 2200, fats: 70, carbs: 250 }
   };
 
   var STORAGE_KEY = 'macros_state';
+  var SKIN_KEY = 'macros_skin';
+  var MACROS = ['protein', 'calories', 'fats', 'carbs'];
+  var LABELS = { protein: 'Protein', calories: 'Calories', fats: 'Fats', carbs: 'Carbs' };
+  var SHORT = { protein: 'P', calories: 'Cal', fats: 'F', carbs: 'C' };
+  var UNITS = { protein: 'g', calories: '', fats: 'g', carbs: 'g' };
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  var MONTHS_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var CAL_ICON = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>';
+
+  var skin = localStorage.getItem(SKIN_KEY) === 'plan' ? 'plan' : 'lite';
   var modalMode = 'log';
   var editing = null;
+  var modalCtx = null;
+  var closeTimer;
 
   var SB_URL = 'https://eobhzoavxexmcoabwikq.supabase.co';
   var SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVvYmh6b2F2eGV4bWNvYWJ3aWtxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTA5OTA5MjEsImV4cCI6MjEwNjU2NjkyMX0.Yam7tsY_7kPK3Ayl2hPa9rYoGZy11evKflYVz2BLIBk';
@@ -17,14 +32,24 @@
   var updatedAt = 0;
   var pushTimer;
 
+  function snapshot() {
+    return { meals: state.meals, logs: state.logs, plans: state.plans, sprints: state.sprints, goals: state.goals };
+  }
+
+  function apply(p) {
+    state.meals = p.meals || [];
+    state.logs = p.logs || [];
+    state.plans = p.plans || state.plans || [];
+    state.sprints = p.sprints || state.sprints || [];
+    state.goals = p.goals || state.goals;
+  }
+
   function load() {
     try {
       var s = localStorage.getItem(STORAGE_KEY);
       if (s) {
         var p = JSON.parse(s);
-        state.meals = p.meals || [];
-        state.logs = p.logs || [];
-        state.goals = p.goals || state.goals;
+        apply(p);
         updatedAt = p.updated_at || 0;
       }
     } catch (e) { /* noop */ }
@@ -32,7 +57,7 @@
 
   function writeLocal() {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify({ meals: state.meals, logs: state.logs, goals: state.goals, updated_at: updatedAt }));
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(Object.assign(snapshot(), { updated_at: updatedAt })));
     } catch (e) { /* noop */ }
   }
 
@@ -64,7 +89,7 @@
   function push() {
     var k = localStorage.getItem(KEY_STORE);
     if (!k) return;
-    rpc('put_state', { p_key: k, p_data: { meals: state.meals, logs: state.logs, goals: state.goals }, p_updated: updatedAt }).catch(function () {});
+    rpc('put_state', { p_key: k, p_data: snapshot(), p_updated: updatedAt }).catch(function () {});
   }
 
   function pull(ask) {
@@ -72,9 +97,7 @@
     if (!k) return;
     rpc('get_state', { p_key: k }).then(function (remote) {
       if (remote && remote.updated_at > updatedAt) {
-        state.meals = remote.data.meals || [];
-        state.logs = remote.data.logs || [];
-        state.goals = remote.data.goals || state.goals;
+        apply(remote.data || {});
         updatedAt = remote.updated_at;
         writeLocal();
         renderAll();
@@ -89,16 +112,21 @@
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
-  function today() {
-    var d = new Date();
-    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-  }
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function dkey(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function parse(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function addDays(s, n) { var d = parse(s); d.setDate(d.getDate() + n); return dkey(d); }
+  function diffDays(a, b) { return Math.round((parse(b) - parse(a)) / 86400000); }
+  function today() { return dkey(new Date()); }
 
   function fmtDate(s) {
-    var parts = s.split('-');
-    var d = new Date(+parts[0], +parts[1] - 1, +parts[2]);
-    var months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-    return months[d.getMonth()] + ' ' + d.getDate();
+    var d = parse(s);
+    return MONTHS[d.getMonth()] + ' ' + d.getDate();
+  }
+
+  function longDate(s) {
+    var d = parse(s);
+    return DAYS[d.getDay()] + ', ' + MONTHS[d.getMonth()] + ' ' + d.getDate();
   }
 
   function shortDate(s) {
@@ -122,14 +150,13 @@
     return m.protein + 'p &middot; ' + m.calories + 'cal &middot; ' + m.fats + 'f &middot; ' + m.carbs + 'c';
   }
 
-  function todaysLogs() {
-    var t = today();
-    return state.logs.filter(function (l) { return l.date === t; });
+  function logsOn(date) {
+    return state.logs.filter(function (l) { return l.date === date; });
   }
 
-  function totals(logs) {
+  function totals(items) {
     var r = { protein: 0, calories: 0, fats: 0, carbs: 0 };
-    logs.forEach(function (l) {
+    items.forEach(function (l) {
       var m = scaled(l);
       r.protein += m.protein; r.calories += m.calories; r.fats += m.fats; r.carbs += m.carbs;
     });
@@ -138,32 +165,176 @@
 
   function esc(s) {
     var div = document.createElement('div');
-    div.textContent = s;
+    div.textContent = s == null ? '' : s;
     return div.innerHTML;
+  }
+
+  function pick(o) {
+    return { name: o.name, desc: o.desc || '', protein: o.protein || 0, calories: o.calories || 0, fats: o.fats || 0, carbs: o.carbs || 0, servings: sv(o) };
+  }
+
+  // ===== Plans & Sprints =====
+  function findSprint(id) { return state.sprints.find(function (s) { return s.id === id; }); }
+  function activeSprint() { return state.sprints.find(function (s) { return !!s.active; }); }
+
+  function sprintFor(date) {
+    var s = activeSprint();
+    if (!s || !s.days || !s.days.length) return null;
+    var off = diffDays(s.active, date);
+    if (off < 0 || off >= s.length) return null;
+    return { sprint: s, day: off % s.days.length, offset: off };
+  }
+
+  function planFor(date) {
+    var sf = sprintFor(date);
+    if (sf) {
+      return (sf.sprint.days[sf.day] || []).map(function (e) {
+        return Object.assign({}, e, { pid: sf.sprint.id + ':' + date + ':' + e.id });
+      });
+    }
+    return state.plans.filter(function (p) { return p.date === date; }).map(function (p) {
+      return Object.assign({}, p, { pid: p.id });
+    });
+  }
+
+  function goalsFor(date) {
+    var sf = sprintFor(date);
+    return sf && sf.sprint.goals ? sf.sprint.goals : state.goals;
+  }
+
+  // ctx: { date } | { dates } | { sprintId, day }
+  function targetList(ctx) {
+    if (ctx.sprintId) {
+      var s = findSprint(ctx.sprintId);
+      if (!s) return null;
+      if (!s.days[ctx.day]) s.days[ctx.day] = [];
+      return s.days[ctx.day];
+    }
+    var sf = sprintFor(ctx.date);
+    if (sf) {
+      if (!sf.sprint.days[sf.day]) sf.sprint.days[sf.day] = [];
+      return sf.sprint.days[sf.day];
+    }
+    return null;
+  }
+
+  function addPlan(ctx, data) {
+    if (ctx.dates) { ctx.dates.forEach(function (d) { addPlan({ date: d }, data); }); return; }
+    var list = targetList(ctx);
+    var e = Object.assign({ id: uid() }, data);
+    if (list) list.push(e); else state.plans.push(Object.assign(e, { date: ctx.date }));
+  }
+
+  function updatePlan(ctx, id, data) {
+    var arr = targetList(ctx) || state.plans;
+    var e = arr.find(function (x) { return x.id === id; });
+    if (e) Object.assign(e, data);
+  }
+
+  function removePlan(ctx, id) {
+    var list = targetList(ctx);
+    if (list) {
+      var i = list.findIndex(function (x) { return x.id === id; });
+      if (i !== -1) list.splice(i, 1);
+    } else {
+      state.plans = state.plans.filter(function (p) { return p.id !== id; });
+    }
+  }
+
+  function linkedLog(pid, date) {
+    return state.logs.find(function (l) { return l.planId === pid && l.date === date; });
+  }
+
+  function startSprint(sp) {
+    var start = cal.sel.length === 1 ? cal.sel[0] : today();
+    state.sprints.forEach(function (s) { s.active = null; });
+    sp.active = start;
+    save();
+    renderAll();
+    toast(sp.name + ' starts ' + fmtDate(start));
+  }
+
+  function stopSprint(sp) {
+    sp.active = null;
+    save();
+    renderAll();
+    toast('Stopped');
   }
 
   function renderAll() {
     renderMeals();
     renderHome();
+    renderPlan();
     renderTrends();
+  }
+
+  // ===== Skin =====
+  function applySkin() {
+    var p = document.getElementById('panel-plan');
+    p.style.display = skin === 'plan' ? '' : 'none';
+    renderDots(1);
+    var panels = document.getElementById('panels');
+    requestAnimationFrame(function () { panels.scrollTo({ left: panels.clientWidth, behavior: 'instant' }); });
+  }
+
+  function toggleSkin() {
+    skin = skin === 'plan' ? 'lite' : 'plan';
+    localStorage.setItem(SKIN_KEY, skin);
+    applySkin();
+    renderAll();
   }
 
   // ===== Home =====
   function renderHome() {
     var panel = document.getElementById('panel-home');
-    var logs = todaysLogs();
-    var t = totals(logs);
+    var t = today();
+    var logs = logsOn(t);
+    var lt = totals(logs);
+    var planOn = skin === 'plan';
 
-    var html = '<div class="date-header">' + fmtDate(today()) + '</div>';
-    html += '<div class="macro-grid">';
-    html += macroCard(t.protein, 'g', 'Protein');
-    html += macroCard(t.calories, '', 'Calories');
-    html += macroCard(t.fats, 'g', 'Fats');
-    html += macroCard(t.carbs, 'g', 'Carbs');
-    html += '</div>';
+    var html = '<div class="home-head"><div class="date-header">' + fmtDate(t) + '</div>';
+    html += '<button class="skin-btn' + (planOn ? ' on' : '') + '" id="skin-btn" aria-label="Plan">' + CAL_ICON + '</button></div>';
+
+    var plan = [], offPlan = logs;
+    if (!planOn) {
+      html += '<div class="macro-grid">';
+      MACROS.forEach(function (m) { html += macroCard(lt[m], UNITS[m], LABELS[m]); });
+      html += '</div>';
+    } else {
+      plan = planFor(t);
+      var pt = totals(plan), g = goalsFor(t), sf = sprintFor(t);
+      if (sf) html += '<div class="sprint-tag">' + esc(sf.sprint.name) + ' &middot; Day ' + (sf.offset + 1) + ' of ' + sf.sprint.length + '</div>';
+      html += '<div class="macro-grid">';
+      MACROS.forEach(function (m) {
+        html += '<div class="card macro-card"><div class="macro-value">' + lt[m] + UNITS[m] + '</div><div class="macro-label">' + LABELS[m] + '</div>';
+        html += '<div class="macro-sub">' + pt[m] + ' plan &middot; ' + g[m] + ' goal</div></div>';
+      });
+      html += '</div>';
+      html += diffCard(lt, pt, g);
+      var pids = plan.map(function (p) { return p.pid; });
+      offPlan = logs.filter(function (l) { return !l.planId || pids.indexOf(l.planId) === -1; });
+    }
+
     html += '<button class="add-btn" id="home-add">+</button>';
+
+    if (planOn && plan.length) {
+      html += '<div class="section-label">Planned</div><div class="logged-meals">';
+      plan.forEach(function (p) {
+        var link = linkedLog(p.pid, t);
+        var st = !link ? '' : (link.name.toLowerCase() === p.name.toLowerCase() ? 'ate' : 'swap');
+        var s = sv(p);
+        html += '<div class="card logged-meal plan-row ' + st + '" data-pid="' + p.pid + '">';
+        html += '<div class="meal-info"><div class="meal-name">' + (s !== 1 ? s + '&times; ' : '') + esc(p.name) + '</div>';
+        html += '<div class="meal-macros">' + macroLine(scaled(p)) + '</div>';
+        if (st === 'swap') html += '<div class="swap-note">Ate ' + esc(link.name) + ' &middot; ' + scaled(link).calories + 'cal</div>';
+        html += '</div><button class="check-btn" data-pid="' + p.pid + '">' + (st ? '&#10003;' : '') + '</button></div>';
+      });
+      html += '</div>';
+    }
+
+    if (planOn && offPlan.length) html += '<div class="section-label">' + (plan.length ? 'Off plan' : 'Logged') + '</div>';
     html += '<div class="logged-meals">';
-    logs.forEach(function (l) {
+    offPlan.forEach(function (l) {
       var s = sv(l);
       html += '<div class="card logged-meal" data-log="' + l.id + '">';
       html += '<div class="meal-info">';
@@ -175,17 +346,207 @@
 
     panel.innerHTML = html;
 
+    panel.querySelector('#skin-btn').addEventListener('click', toggleSkin);
     panel.querySelector('#home-add').addEventListener('click', function () { openModal('log'); });
-    panel.querySelectorAll('.logged-meal').forEach(function (row) {
+    panel.querySelectorAll('.logged-meal[data-log]').forEach(function (row) {
       row.addEventListener('click', function () {
         var l = state.logs.find(function (x) { return x.id === row.dataset.log; });
         if (l) openModal('editLog', l);
+      });
+    });
+    panel.querySelectorAll('.plan-row').forEach(function (row) {
+      var p = plan.find(function (x) { return x.pid === row.dataset.pid; });
+      row.addEventListener('click', function () {
+        var link = linkedLog(p.pid, t);
+        if (link) openModal('editLog', link); else openModal('logPlan', p);
+      });
+      row.querySelector('.check-btn').addEventListener('click', function (e) {
+        e.stopPropagation();
+        var link = linkedLog(p.pid, t);
+        if (link) {
+          state.logs = state.logs.filter(function (l) { return l.id !== link.id; });
+          toast('Unlogged');
+        } else {
+          state.logs.push(Object.assign({ id: uid(), date: t, planId: p.pid }, pick(p)));
+          toast('Logged');
+        }
+        save();
+        renderAll();
       });
     });
   }
 
   function macroCard(val, unit, label) {
     return '<div class="card macro-card"><div class="macro-value">' + val + unit + '</div><div class="macro-label">' + label + '</div></div>';
+  }
+
+  function diffCard(lt, pt, g) {
+    var h = '<div class="card diff-card"><div class="diff-row diff-head"><span></span>';
+    MACROS.forEach(function (m) { h += '<span>' + SHORT[m] + '</span>'; });
+    h += '</div>';
+    h += diffRow('Plan vs goal', pt, g);
+    h += diffRow('Ate vs plan', lt, pt);
+    h += diffRow('Ate vs goal', lt, g);
+    return h + '</div>';
+  }
+
+  function diffRow(label, a, ref) {
+    var h = '<div class="diff-row"><span class="diff-label">' + label + '</span>';
+    MACROS.forEach(function (m) {
+      if (!ref[m]) { h += '<span class="diff-val">&middot;</span>'; return; }
+      var d = a[m] - ref[m];
+      var cls = Math.abs(d) / ref[m] <= 0.1 ? 'ok' : 'off';
+      h += '<span class="diff-val ' + cls + '">' + (d > 0 ? '+' + d : d < 0 ? '&minus;' + Math.abs(d) : '0') + '</span>';
+    });
+    return h + '</div>';
+  }
+
+  // ===== Plan (calendar) =====
+  var cal = { month: today().slice(0, 8) + '01', sel: [today()], multi: false };
+
+  function renderPlan() {
+    var panel = document.getElementById('panel-plan');
+    if (skin !== 'plan') { panel.innerHTML = ''; return; }
+
+    var m = parse(cal.month);
+    var y = m.getFullYear(), mo = m.getMonth();
+    var first = m.getDay();
+    var dim = new Date(y, mo + 1, 0).getDate();
+    var t = today();
+
+    var html = '<div class="cal-head"><button class="cal-nav" data-nav="-1">&lsaquo;</button>';
+    html += '<div class="cal-title">' + MONTHS_FULL[mo] + ' ' + y + '</div>';
+    html += '<button class="cal-nav" data-nav="1">&rsaquo;</button>';
+    html += '<button class="pill' + (cal.multi ? ' on' : '') + '" id="cal-multi">Select</button></div>';
+
+    html += '<div class="cal-grid cal-week">';
+    DAYS.forEach(function (d) { html += '<span>' + d.charAt(0) + '</span>'; });
+    html += '</div><div class="cal-grid">';
+    for (var i = 0; i < first; i++) html += '<span></span>';
+    for (var d = 1; d <= dim; d++) {
+      var k = dkey(new Date(y, mo, d));
+      var kc = totals(planFor(k)).calories;
+      var cls = 'day';
+      if (k === t) cls += ' today';
+      if (cal.sel.indexOf(k) !== -1) cls += ' sel';
+      if (sprintFor(k)) cls += ' spr';
+      html += '<button class="' + cls + '" data-day="' + k + '"><span class="dnum">' + d + '</span><span class="dcal">' + (kc || '') + '</span></button>';
+    }
+    html += '</div>';
+
+    var sel = cal.sel.slice().sort();
+    if (sel.length === 1) html += dayDetail(sel[0]);
+    else if (sel.length > 1) html += multiDetail(sel);
+    else html += '<div class="note">Tap days to select</div>';
+
+    html += '<div class="section-head"><div class="section-label">Sprints</div><button class="small-add-btn" id="sprint-new">+</button></div>';
+    html += '<div class="logged-meals">';
+    state.sprints.forEach(function (s) {
+      var sub = s.length + ' days' + (s.days.length !== s.length ? ' &middot; ' + s.days.length + '-day cycle' : '');
+      if (s.active) {
+        var off = diffDays(s.active, t);
+        sub = off < 0 ? 'Starts ' + fmtDate(s.active) : off >= s.length ? 'Ended' : 'Day ' + (off + 1) + ' of ' + s.length;
+      }
+      html += '<div class="card meal-item sprint-item" data-sid="' + s.id + '"><div class="meal-info">';
+      html += '<div class="meal-name">' + esc(s.name) + '</div><div class="meal-macros">' + sub + '</div></div>';
+      html += '<button class="log-btn" data-sid="' + s.id + '">' + (s.active ? 'STOP' : 'START') + '</button></div>';
+    });
+    html += '</div>';
+
+    panel.innerHTML = html;
+
+    panel.querySelectorAll('.cal-nav').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var nm = new Date(y, mo + parseInt(b.dataset.nav), 1);
+        cal.month = dkey(nm);
+        renderPlan();
+      });
+    });
+    panel.querySelector('#cal-multi').addEventListener('click', function () {
+      cal.multi = !cal.multi;
+      if (!cal.multi) cal.sel = cal.sel.slice(-1);
+      renderPlan();
+    });
+    panel.querySelectorAll('.day').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var k = b.dataset.day;
+        if (cal.multi) {
+          var i = cal.sel.indexOf(k);
+          if (i === -1) cal.sel.push(k); else cal.sel.splice(i, 1);
+        } else {
+          cal.sel = [k];
+        }
+        renderPlan();
+      });
+    });
+
+    if (sel.length === 1) {
+      var date = sel[0];
+      var items = planFor(date);
+      panel.querySelector('#plan-add').addEventListener('click', function () { openModal('plan', null, { date: date }); });
+      panel.querySelectorAll('.plan-entry').forEach(function (row) {
+        row.addEventListener('click', function () {
+          var e = items.find(function (x) { return x.id === row.dataset.eid; });
+          if (e) openModal('editPlan', e, { date: date });
+        });
+      });
+    } else if (sel.length > 1) {
+      panel.querySelector('#multi-add').addEventListener('click', function () { openModal('plan', null, { dates: sel }); });
+      panel.querySelector('#multi-sprint').addEventListener('click', function () {
+        var n = diffDays(sel[0], sel[sel.length - 1]) + 1;
+        var days = [];
+        for (var i = 0; i < n; i++) {
+          days.push(planFor(addDays(sel[0], i)).map(function (e) { return Object.assign({ id: uid() }, pick(e)); }));
+        }
+        openSprint(null, days);
+      });
+      panel.querySelector('#multi-clear').addEventListener('click', function () {
+        if (!window.confirm('Clear planned meals on ' + sel.length + ' days?')) return;
+        state.plans = state.plans.filter(function (p) { return sel.indexOf(p.date) === -1 || sprintFor(p.date); });
+        save();
+        renderAll();
+        toast('Cleared');
+      });
+    }
+
+    panel.querySelector('#sprint-new').addEventListener('click', function () { openSprint(null); });
+    panel.querySelectorAll('.sprint-item').forEach(function (row) {
+      row.addEventListener('click', function () { var s = findSprint(row.dataset.sid); if (s) openSprint(s); });
+      row.querySelector('.log-btn').addEventListener('click', function (e) {
+        e.stopPropagation();
+        var s = findSprint(row.dataset.sid);
+        if (!s) return;
+        if (s.active) stopSprint(s); else startSprint(s);
+      });
+    });
+  }
+
+  function dayDetail(date) {
+    var items = planFor(date), pt = totals(items), g = goalsFor(date), sf = sprintFor(date);
+    var h = '<div class="detail"><div class="detail-head"><div class="detail-title">' + longDate(date) + '</div>';
+    if (sf) h += '<div class="sprint-tag">' + esc(sf.sprint.name) + ' &middot; Day ' + (sf.offset + 1) + '</div>';
+    h += '</div><div class="mini-grid">';
+    MACROS.forEach(function (m) {
+      h += '<div class="mini"><div class="mini-val">' + pt[m] + '<span>/' + g[m] + '</span></div><div class="macro-label">' + SHORT[m] + '</div></div>';
+    });
+    h += '</div><div class="logged-meals">';
+    items.forEach(function (e) {
+      var s = sv(e);
+      h += '<div class="card logged-meal plan-entry" data-eid="' + e.id + '"><div class="meal-info">';
+      h += '<div class="meal-name">' + (s !== 1 ? s + '&times; ' : '') + esc(e.name) + '</div>';
+      h += '<div class="meal-macros">' + macroLine(scaled(e)) + '</div></div></div>';
+    });
+    h += '</div><button class="wide-btn" id="plan-add">+ Add meal</button>';
+    if (sf && sf.sprint.days.length < sf.sprint.length) h += '<div class="note">Edits apply to every Day ' + (sf.day + 1) + ' of the cycle</div>';
+    return h + '</div>';
+  }
+
+  function multiDetail(sel) {
+    var h = '<div class="detail"><div class="detail-title">' + sel.length + ' days</div>';
+    h += '<div class="btn-row"><button class="wide-btn" id="multi-add">+ Add to all</button>';
+    h += '<button class="wide-btn" id="multi-sprint">Save as sprint</button></div>';
+    h += '<button class="modal-delete" id="multi-clear">Clear</button></div>';
+    return h;
   }
 
   // ===== Meals =====
@@ -280,7 +641,7 @@
           if (isNaN(v) || v < 0) v = current;
           state.goals[macro] = v;
           save();
-          renderTrends();
+          renderAll();
         }
         inp.addEventListener('blur', commit);
         inp.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); commit(); } });
@@ -365,24 +726,35 @@
   }
 
   // ===== Sheet =====
-  // modes: log (new log, optional prefill), save (new library item), editLog, editMeal
-  function openModal(mode, item) {
-    modalMode = mode;
-    editing = (mode === 'editLog' || mode === 'editMeal') ? item : null;
-    var prefill = item || null;
-    var hasServings = mode === 'log' || mode === 'editLog';
+  function showSheet(html) {
     var modal = document.getElementById('modal');
     var overlay = document.getElementById('modal-overlay');
+    clearTimeout(closeTimer);
+    modal.innerHTML = html;
+    modal.scrollTop = 0;
+    overlay.classList.add('active');
+    requestAnimationFrame(function () {
+      requestAnimationFrame(function () { modal.classList.add('active'); });
+    });
+    overlay.onclick = function (e) { if (e.target === overlay) closeModal(); };
+  }
+
+  // modes: log, save, editLog, editMeal, logPlan (log a planned item), plan (new planned item), editPlan
+  function openModal(mode, item, ctx) {
+    modalMode = mode;
+    modalCtx = ctx || null;
+    editing = (mode === 'editLog' || mode === 'editMeal' || mode === 'editPlan' || mode === 'logPlan') ? item : null;
+    var prefill = item || null;
+    var hasServings = mode !== 'save' && mode !== 'editMeal';
+    var suggest = mode === 'log' || mode === 'logPlan' || mode === 'plan' || mode === 'editPlan';
+    var canDelete = mode === 'editLog' || mode === 'editMeal' || mode === 'editPlan';
 
     var html = '<div class="modal-handle"></div><div class="modal-fields">';
     html += '<input type="text" id="m-name" class="modal-input" placeholder="Name" autocomplete="off">';
-    if (mode === 'log') html += '<div class="suggestions" id="m-suggest"></div>';
+    if (suggest) html += '<div class="suggestions" id="m-suggest"></div>';
     html += '<input type="text" id="m-desc" class="modal-input" placeholder="Description" autocomplete="off">';
     html += '<div class="modal-macro-grid">';
-    html += macroInput('m-protein', 'Protein');
-    html += macroInput('m-calories', 'Calories');
-    html += macroInput('m-fats', 'Fats');
-    html += macroInput('m-carbs', 'Carbs');
+    MACROS.forEach(function (m) { html += macroInput('m-' + m, LABELS[m]); });
     html += '</div>';
     if (hasServings) {
       html += '<div class="servings-row">';
@@ -391,17 +763,18 @@
       html += '<button class="step-btn" id="m-plus">+</button>';
       html += '</div>';
     }
-    if (mode === 'log' && !prefill) {
+    if ((mode === 'log' || mode === 'plan' || mode === 'logPlan') && !(prefill && prefill.id && state.meals.some(function (m) { return m.id === prefill.id; }))) {
       html += '<label class="save-toggle"><input type="checkbox" id="m-save"><span>Save to library</span></label>';
     }
     html += '</div>';
-    html += '<button class="modal-submit" id="m-submit">' + (mode === 'log' ? 'Log' : 'Save') + '</button>';
-    if (editing) html += '<button class="modal-delete" id="m-delete">Delete</button>';
+    var label = mode === 'log' || mode === 'logPlan' ? 'Log' : mode === 'plan' ? 'Add' : 'Save';
+    html += '<button class="modal-submit" id="m-submit">' + label + '</button>';
+    if (canDelete) html += '<button class="modal-delete" id="m-delete">Delete</button>';
 
-    modal.innerHTML = html;
+    showSheet(html);
 
     if (prefill) fill(prefill);
-    if (mode === 'editLog') document.getElementById('m-servings').value = sv(editing);
+    if (hasServings && prefill && prefill.servings) document.getElementById('m-servings').value = sv(prefill);
 
     if (hasServings) {
       var sEl = document.getElementById('m-servings');
@@ -413,25 +786,17 @@
       });
     }
 
-    overlay.classList.add('active');
-    requestAnimationFrame(function () {
-      requestAnimationFrame(function () { modal.classList.add('active'); });
-    });
     if (!prefill) setTimeout(function () { var el = document.getElementById('m-name'); if (el) el.focus(); }, 350);
 
     document.getElementById('m-submit').addEventListener('click', submitModal);
-    if (editing) document.getElementById('m-delete').addEventListener('click', deleteEditing);
-    if (mode === 'log') initSuggest();
-    overlay.onclick = function (e) { if (e.target === overlay) closeModal(); };
+    if (canDelete) document.getElementById('m-delete').addEventListener('click', deleteEditing);
+    if (suggest) initSuggest();
   }
 
   function fill(m) {
     document.getElementById('m-name').value = m.name;
     document.getElementById('m-desc').value = m.desc || '';
-    document.getElementById('m-protein').value = m.protein;
-    document.getElementById('m-calories').value = m.calories;
-    document.getElementById('m-fats').value = m.fats;
-    document.getElementById('m-carbs').value = m.carbs;
+    MACROS.forEach(function (k) { document.getElementById('m-' + k).value = m[k]; });
   }
 
   function initSuggest() {
@@ -472,16 +837,27 @@
   }
 
   function num(id, isFloat) {
-    var v = document.getElementById(id).value;
-    var n = isFloat ? parseFloat(v) : parseInt(v);
+    var el = document.getElementById(id);
+    if (!el) return 0;
+    var n = isFloat ? parseFloat(el.value) : parseInt(el.value);
     return isNaN(n) ? 0 : n;
   }
 
   function closeModal() {
     document.getElementById('modal').classList.remove('active');
     var overlay = document.getElementById('modal-overlay');
-    setTimeout(function () { overlay.classList.remove('active'); }, 300);
+    clearTimeout(closeTimer);
+    closeTimer = setTimeout(function () { overlay.classList.remove('active'); }, 300);
     editing = null;
+    modalCtx = null;
+  }
+
+  function finish(msg) {
+    var back = modalCtx && modalCtx.sprintId ? findSprint(modalCtx.sprintId) : null;
+    save();
+    renderAll();
+    toast(msg);
+    if (back) openSprint(back); else closeModal();
   }
 
   function deleteEditing() {
@@ -489,36 +865,35 @@
     if (modalMode === 'editLog') {
       var lid = editing.id;
       state.logs = state.logs.filter(function (l) { return l.id !== lid; });
+    } else if (modalMode === 'editPlan') {
+      removePlan(modalCtx, editing.id);
     } else {
       var mid = editing.id;
       state.meals = state.meals.filter(function (m) { return m.id !== mid; });
     }
-    save();
-    renderAll();
-    toast('Deleted');
-    closeModal();
+    finish('Deleted');
   }
 
   function submitModal() {
     var name = (document.getElementById('m-name').value || '').trim();
     if (!name) { document.getElementById('m-name').focus(); return; }
 
-    var data = {
-      name: name,
-      desc: (document.getElementById('m-desc').value || '').trim(),
-      protein: num('m-protein'),
-      calories: num('m-calories'),
-      fats: num('m-fats'),
-      carbs: num('m-carbs')
-    };
+    var data = { name: name, desc: (document.getElementById('m-desc').value || '').trim() };
+    MACROS.forEach(function (m) { data[m] = num('m-' + m); });
     var servings = document.getElementById('m-servings') ? (num('m-servings', true) || 1) : 1;
+    var cb = document.getElementById('m-save');
     var msg = 'Saved';
 
-    if (modalMode === 'log') {
-      state.logs.push(Object.assign({ id: uid(), date: today(), servings: servings }, data));
-      var cb = document.getElementById('m-save');
-      if (cb && cb.checked) upsertMeal(data);
+    if (modalMode === 'log' || modalMode === 'logPlan') {
+      var log = Object.assign({ id: uid(), date: today(), servings: servings }, data);
+      if (modalMode === 'logPlan') log.planId = editing.pid;
+      state.logs.push(log);
       msg = 'Logged';
+    } else if (modalMode === 'plan') {
+      addPlan(modalCtx, Object.assign({}, data, { servings: servings }));
+      msg = 'Planned';
+    } else if (modalMode === 'editPlan') {
+      updatePlan(modalCtx, editing.id, Object.assign({}, data, { servings: servings }));
     } else if (modalMode === 'editLog') {
       Object.assign(editing, data, { servings: servings });
     } else if (modalMode === 'editMeal') {
@@ -526,11 +901,121 @@
     } else {
       upsertMeal(data);
     }
+    if (cb && cb.checked) upsertMeal(data);
 
-    save();
-    renderAll();
-    toast(msg);
-    closeModal();
+    finish(msg);
+  }
+
+  // ===== Sprint sheet =====
+  var sprintDraftDays = null;
+
+  function openSprint(sp, seedDays) {
+    modalMode = 'sprint';
+    editing = sp || null;
+    modalCtx = null;
+    sprintDraftDays = sp ? null : (seedDays || [[], [], [], [], [], [], []]);
+    var days = sp ? sp.days : sprintDraftDays;
+    var g = sp && sp.goals ? sp.goals : state.goals;
+
+    var html = '<div class="modal-handle"></div><div class="modal-fields">';
+    html += '<input type="text" id="s-name" class="modal-input" placeholder="Name" autocomplete="off">';
+    html += '<div class="modal-macro-grid">';
+    html += '<div class="modal-macro"><input type="number" id="s-length" class="modal-input macro-input" inputmode="numeric" value="' + (sp ? sp.length : days.length) + '"><span class="input-label">Total days</span></div>';
+    html += '<div class="modal-macro"><input type="number" id="s-cycle" class="modal-input macro-input" inputmode="numeric" value="' + days.length + '"><span class="input-label">Repeat every</span></div>';
+    html += '</div><div class="modal-macro-grid">';
+    MACROS.forEach(function (m) {
+      html += '<div class="modal-macro"><input type="number" id="s-' + m + '" class="modal-input macro-input" inputmode="numeric" value="' + g[m] + '"><span class="input-label">' + LABELS[m] + '</span></div>';
+    });
+    html += '</div>';
+    if (sp) {
+      html += '<div class="sp-days">';
+      sp.days.forEach(function (entries, i) {
+        html += '<div class="sp-day"><div class="sp-day-head"><span class="sp-day-title">Day ' + (i + 1) + '</span>';
+        html += '<span class="meal-macros">' + totals(entries).calories + ' cal</span><button class="sp-add" data-day="' + i + '">+</button></div>';
+        entries.forEach(function (e) {
+          html += '<div class="sp-entry" data-day="' + i + '" data-eid="' + e.id + '"><span>' + (sv(e) !== 1 ? sv(e) + '&times; ' : '') + esc(e.name) + '</span><span class="meal-macros">' + scaled(e).calories + '</span></div>';
+        });
+        html += '</div>';
+      });
+      html += '</div>';
+    }
+    html += '</div>';
+    html += '<button class="modal-submit" id="s-save">Save</button>';
+    if (sp) {
+      html += '<div class="btn-row"><button class="wide-btn" id="s-fit">Fit to goals</button>';
+      html += '<button class="wide-btn" id="s-toggle">' + (sp.active ? 'Stop' : 'Start') + '</button></div>';
+      html += '<button class="modal-delete" id="s-delete">Delete</button>';
+    }
+
+    showSheet(html);
+    document.getElementById('s-name').value = sp ? sp.name : '';
+
+    document.getElementById('s-save').addEventListener('click', function () {
+      var s = commitSprint();
+      save();
+      renderAll();
+      toast('Saved');
+      if (sp) closeModal(); else openSprint(s);
+    });
+
+    if (!sp) return;
+
+    document.querySelectorAll('.sp-add').forEach(function (b) {
+      b.addEventListener('click', function () {
+        commitSprint();
+        openModal('plan', null, { sprintId: sp.id, day: +b.dataset.day });
+      });
+    });
+    document.querySelectorAll('.sp-entry').forEach(function (row) {
+      row.addEventListener('click', function () {
+        commitSprint();
+        var e = (sp.days[+row.dataset.day] || []).find(function (x) { return x.id === row.dataset.eid; });
+        if (e) openModal('editPlan', e, { sprintId: sp.id, day: +row.dataset.day });
+      });
+    });
+    document.getElementById('s-fit').addEventListener('click', function () {
+      commitSprint();
+      sp.days.forEach(function (entries) {
+        var c = totals(entries).calories;
+        if (!c) return;
+        var f = sp.goals.calories / c;
+        entries.forEach(function (e) { e.servings = Math.max(0.25, Math.round(sv(e) * f * 4) / 4); });
+      });
+      save();
+      renderAll();
+      toast('Fitted to goals');
+      openSprint(sp);
+    });
+    document.getElementById('s-toggle').addEventListener('click', function () {
+      commitSprint();
+      if (sp.active) stopSprint(sp); else startSprint(sp);
+      closeModal();
+    });
+    document.getElementById('s-delete').addEventListener('click', function () {
+      if (!window.confirm('Delete ' + sp.name + '?')) return;
+      state.sprints = state.sprints.filter(function (s) { return s.id !== sp.id; });
+      save();
+      renderAll();
+      toast('Deleted');
+      closeModal();
+    });
+  }
+
+  function commitSprint() {
+    var sp = editing;
+    if (!sp) {
+      sp = { id: uid(), active: null, days: sprintDraftDays };
+      state.sprints.push(sp);
+      editing = sp;
+    }
+    sp.name = (document.getElementById('s-name').value || '').trim() || 'Sprint';
+    var cycle = Math.max(1, num('s-cycle') || sp.days.length || 7);
+    while (sp.days.length < cycle) sp.days.push([]);
+    sp.days.length = cycle;
+    sp.length = Math.max(1, num('s-length') || cycle);
+    sp.goals = {};
+    MACROS.forEach(function (m) { sp.goals[m] = num('s-' + m); });
+    return sp;
   }
 
   // ===== Toast =====
@@ -544,41 +1029,48 @@
   }
 
   // ===== Navigation =====
+  function visiblePanels() {
+    return Array.prototype.filter.call(document.querySelectorAll('.panel'), function (p) { return p.style.display !== 'none'; });
+  }
+
+  function renderDots(activeIdx) {
+    var wrap = document.getElementById('nav-dots');
+    var panels = document.getElementById('panels');
+    var html = '';
+    visiblePanels().forEach(function (p, i) { html += '<div class="dot' + (i === activeIdx ? ' active' : '') + '"></div>'; });
+    wrap.innerHTML = html;
+    wrap.querySelectorAll('.dot').forEach(function (dot, i) {
+      dot.addEventListener('click', function () {
+        panels.scrollTo({ left: i * panels.clientWidth, behavior: 'smooth' });
+      });
+    });
+  }
+
   function initNav() {
     var panels = document.getElementById('panels');
-    var dots = document.querySelectorAll('.dot');
-
-    requestAnimationFrame(function () {
-      panels.scrollTo({ left: panels.clientWidth, behavior: 'instant' });
-    });
+    applySkin();
 
     var scrollTimer;
     panels.addEventListener('scroll', function () {
       clearTimeout(scrollTimer);
       scrollTimer = setTimeout(function () {
         var idx = Math.round(panels.scrollLeft / panels.clientWidth);
-        dots.forEach(function (d, i) { d.classList.toggle('active', i === idx); });
+        document.querySelectorAll('.dot').forEach(function (d, i) { d.classList.toggle('active', i === idx); });
       }, 50);
     }, { passive: true });
-
-    dots.forEach(function (dot) {
-      dot.addEventListener('click', function () {
-        panels.scrollTo({ left: parseInt(dot.dataset.panel) * panels.clientWidth, behavior: 'smooth' });
-      });
-    });
   }
 
   // ===== Init =====
   function init() {
     load();
-    renderAll();
     initNav();
+    renderAll();
 
     if (navigator.storage && navigator.storage.persist) navigator.storage.persist();
 
     setTimeout(function () { pull(true); }, 400);
     document.addEventListener('visibilitychange', function () {
-      if (document.visibilityState === 'visible') { renderHome(); pull(false); }
+      if (document.visibilityState === 'visible') { renderHome(); renderPlan(); pull(false); }
     });
 
     if ('serviceWorker' in navigator) {
